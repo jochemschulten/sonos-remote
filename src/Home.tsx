@@ -1,0 +1,823 @@
+import { Fragment, useEffect, useRef, useState } from 'react';
+import {
+  IonContent,
+  IonHeader,
+  IonPage,
+  IonTitle,
+  IonToolbar,
+  IonList,
+  IonItem,
+  IonLabel,
+  IonButton,
+  IonIcon,
+  IonRange,
+  IonInput,
+  IonSelect,
+  IonSelectOption,
+  IonNote,
+  IonSpinner,
+  IonToast,
+  IonButtons,
+  IonChip,
+  IonSearchbar,
+  IonListHeader
+} from '@ionic/react';
+import { play, stop, refresh, addCircleOutline, star, starOutline, alarm as alarmIcon, trash } from 'ionicons/icons';
+import { Preferences } from '@capacitor/preferences';
+
+import { STATIONS, Station } from './stations';
+import {
+  Speaker,
+  NowPlaying,
+  Alarm,
+  Recurrence,
+  discover,
+  checkSpeaker,
+  playRadio,
+  stop as sonosStop,
+  setVolume as sonosSetVolume,
+  getVolume as sonosGetVolume,
+  getNowPlaying,
+  listAlarms,
+  createAlarm,
+  deleteAlarm,
+  setAlarmEnabled,
+  timesToDuration,
+  durationToStop
+} from './sonos';
+
+const PREF_SPEAKERS = 'speakers';
+const PREF_SELECTED = 'selectedIp';
+const PREF_CUSTOM = 'customStations';
+const PREF_FAVORITES = 'favoriteUrls';
+const PREF_RECENTS = 'recentUrls';
+const RECENTS_MAX = 10;
+
+type CustomStation = Station;
+
+export default function Home() {
+  const [speakers, setSpeakers] = useState<Speaker[]>([]);
+  const [selectedIp, setSelectedIp] = useState<string>('');
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [manualIp, setManualIp] = useState('');
+  const [customSubnet, setCustomSubnet] = useState('');
+  const [volume, setVolumeState] = useState(20);
+  const [busy, setBusy] = useState(false);
+  const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+  const [customStations, setCustomStations] = useState<CustomStation[]>([]);
+  const [newStationName, setNewStationName] = useState('');
+  const [newStationUrl, setNewStationUrl] = useState('');
+  const [toast, setToast] = useState<string>('');
+  const [hydrated, setHydrated] = useState(false);
+  const autoScanned = useRef(false);
+  const [showAddSpeaker, setShowAddSpeaker] = useState(false);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [recents, setRecents] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [showAddStation, setShowAddStation] = useState(false);
+
+  // Alarms
+  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [showAlarmForm, setShowAlarmForm] = useState(false);
+  const [alarmStationUrl, setAlarmStationUrl] = useState<string>('');
+  const [alarmStart, setAlarmStart] = useState('07:30');
+  const [alarmStop, setAlarmStop] = useState('08:00');
+  const [alarmRecurrence, setAlarmRecurrence] = useState<Recurrence>('DAILY');
+  const [alarmVolume, setAlarmVolume] = useState(20);
+
+  // Load persisted state
+  useEffect(() => {
+    (async () => {
+      const sp = await Preferences.get({ key: PREF_SPEAKERS });
+      if (sp.value) setSpeakers(JSON.parse(sp.value));
+      const sel = await Preferences.get({ key: PREF_SELECTED });
+      if (sel.value) setSelectedIp(sel.value);
+      const cs = await Preferences.get({ key: PREF_CUSTOM });
+      if (cs.value) setCustomStations(JSON.parse(cs.value));
+      const fav = await Preferences.get({ key: PREF_FAVORITES });
+      if (fav.value) setFavorites(JSON.parse(fav.value));
+      const rec = await Preferences.get({ key: PREF_RECENTS });
+      if (rec.value) setRecents(JSON.parse(rec.value));
+      setHydrated(true);
+    })();
+  }, []);
+
+  // Auto-scan on first load if no speakers known yet
+  useEffect(() => {
+    if (!hydrated || autoScanned.current) return;
+    if (speakers.length === 0) {
+      autoScanned.current = true;
+      handleScan();
+    }
+  }, [hydrated, speakers.length]);
+
+  // Persist speakers
+  useEffect(() => {
+    Preferences.set({ key: PREF_SPEAKERS, value: JSON.stringify(speakers) });
+  }, [speakers]);
+
+  useEffect(() => {
+    if (selectedIp) Preferences.set({ key: PREF_SELECTED, value: selectedIp });
+  }, [selectedIp]);
+
+  useEffect(() => {
+    Preferences.set({ key: PREF_CUSTOM, value: JSON.stringify(customStations) });
+  }, [customStations]);
+
+  useEffect(() => {
+    if (hydrated) Preferences.set({ key: PREF_FAVORITES, value: JSON.stringify(favorites) });
+  }, [favorites, hydrated]);
+
+  useEffect(() => {
+    if (hydrated) Preferences.set({ key: PREF_RECENTS, value: JSON.stringify(recents) });
+  }, [recents, hydrated]);
+
+  // Sync volume when speaker changes
+  useEffect(() => {
+    if (!selectedIp) return;
+    sonosGetVolume(selectedIp).then(setVolumeState).catch(() => {});
+  }, [selectedIp]);
+
+  // Re-probe geselecteerde speaker wanneer UUID ontbreekt (oude opslag voor schemawijziging)
+  useEffect(() => {
+    if (!hydrated || !selectedIp) return;
+    const sp = speakers.find((s) => s.ip === selectedIp);
+    if (sp && !sp.uuid) {
+      checkSpeaker(selectedIp).then((updated) => {
+        if (updated) setSpeakers((prev) => mergeSpeakers(prev, [updated]));
+      });
+    }
+  }, [hydrated, selectedIp, speakers]);
+
+  // Load alarms when speaker changes
+  useEffect(() => {
+    if (!selectedIp) {
+      setAlarms([]);
+      return;
+    }
+    listAlarms(selectedIp).then(setAlarms).catch(() => setAlarms([]));
+  }, [selectedIp]);
+
+  // Poll now-playing every 5s while a speaker is selected
+  useEffect(() => {
+    if (!selectedIp) {
+      setNowPlaying(null);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const np = await getNowPlaying(selectedIp);
+        if (!cancelled) setNowPlaying(np);
+      } catch {
+        // negeer netwerkfouten tijdens polling
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [selectedIp]);
+
+  async function handleScan() {
+    setScanning(true);
+    setScanProgress(0);
+    try {
+      const found = await discover(
+        (done, total) => setScanProgress(Math.round((done / total) * 100)),
+        customSubnet || undefined
+      );
+      if (found.length === 0) {
+        setToast('Geen Sonos gevonden. Probeer handmatig IP toevoegen.');
+      } else {
+        setSpeakers((prev) => mergeSpeakers(prev, found));
+        if (!selectedIp) setSelectedIp(found[0].ip);
+        setToast(`${found.length} speaker(s) gevonden.`);
+      }
+    } catch (e) {
+      setToast(`Scan mislukt: ${(e as Error).message}`);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function handleAddManual() {
+    if (!manualIp.trim()) return;
+    setBusy(true);
+    try {
+      const sp = await checkSpeaker(manualIp.trim());
+      if (sp) {
+        setSpeakers((prev) => mergeSpeakers(prev, [sp]));
+        if (!selectedIp) setSelectedIp(sp.ip);
+        setManualIp('');
+        setToast(`Toegevoegd: ${sp.room}`);
+      } else {
+        setToast('Geen Sonos op dat IP gevonden.');
+      }
+    } catch (e) {
+      setToast(`Fout: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePlay(station: Station) {
+    if (!selectedIp) {
+      setToast('Selecteer eerst een speaker.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await playRadio(selectedIp, station.url, station.name);
+      setRecents((prev) => [station.url, ...prev.filter((u) => u !== station.url)].slice(0, RECENTS_MAX));
+      // Direct refreshen voor snelle feedback (anders pas na 5s poll)
+      setTimeout(() => getNowPlaying(selectedIp).then(setNowPlaying).catch(() => {}), 800);
+    } catch (e) {
+      setToast(`Afspelen mislukt: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStop() {
+    if (!selectedIp) return;
+    setBusy(true);
+    try {
+      await sonosStop(selectedIp);
+      setNowPlaying((prev) => (prev ? { ...prev, state: 'STOPPED' } : null));
+    } catch (e) {
+      setToast(`Stop mislukt: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVolume(v: number) {
+    setVolumeState(v);
+    if (!selectedIp) return;
+    try {
+      await sonosSetVolume(selectedIp, v);
+    } catch {
+      // negeer korte fouten tijdens slepen
+    }
+  }
+
+  function handleAddCustom() {
+    if (!newStationName.trim() || !newStationUrl.trim()) return;
+    setCustomStations((prev) => [...prev, { name: newStationName.trim(), url: newStationUrl.trim() }]);
+    setNewStationName('');
+    setNewStationUrl('');
+  }
+
+  function handleRemoveCustom(url: string) {
+    setCustomStations((prev) => prev.filter((s) => s.url !== url));
+  }
+
+  function toggleFavorite(url: string) {
+    setFavorites((prev) => (prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]));
+  }
+
+  // -------- Alarms (op de geselecteerde speaker) --------
+  const selectedSpeaker = speakers.find((s) => s.ip === selectedIp);
+
+  async function refreshAlarms() {
+    if (!selectedIp) return;
+    try {
+      setAlarms(await listAlarms(selectedIp));
+    } catch (e) {
+      setToast(`Alarms ophalen mislukt: ${(e as Error).message}`);
+    }
+  }
+
+  async function handleCreateAlarm() {
+    if (!selectedIp || !selectedSpeaker?.uuid) {
+      setToast('Speaker UUID onbekend — scan opnieuw.');
+      return;
+    }
+    if (!alarmStationUrl) {
+      setToast('Kies een zender voor het alarm.');
+      return;
+    }
+    const station = allStations.find((s) => s.url === alarmStationUrl);
+    if (!station) return;
+    setBusy(true);
+    try {
+      await createAlarm(selectedIp, {
+        startTime: `${alarmStart}:00`,
+        duration: timesToDuration(alarmStart, alarmStop),
+        recurrence: alarmRecurrence,
+        enabled: true,
+        roomUUID: selectedSpeaker.uuid,
+        streamUrl: station.url,
+        stationName: station.name,
+        volume: alarmVolume
+      });
+      await refreshAlarms();
+      setShowAlarmForm(false);
+      setToast(`Alarm aangemaakt: ${alarmStart} → ${alarmStop}`);
+    } catch (e) {
+      setToast(`Alarm aanmaken mislukt: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleToggleAlarm(a: Alarm) {
+    if (!selectedIp) return;
+    try {
+      await setAlarmEnabled(selectedIp, a, !a.enabled);
+      await refreshAlarms();
+    } catch (e) {
+      setToast(`Toggle mislukt: ${(e as Error).message}`);
+    }
+  }
+
+  async function handleDeleteAlarm(id: string) {
+    if (!selectedIp) return;
+    setBusy(true);
+    try {
+      await deleteAlarm(selectedIp, id);
+      await refreshAlarms();
+      setToast('Alarm verwijderd.');
+    } catch (e) {
+      setToast(`Verwijderen mislukt: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const allStations = [...STATIONS, ...customStations];
+  const isFavorite = (url: string) => favorites.includes(url);
+
+  type Group = 'fav' | 'recent' | 'all';
+  type Row = { station: Station; group: Group };
+
+  const groupedStations: Row[] = (() => {
+    const q = search.trim().toLowerCase();
+    if (q) {
+      return allStations
+        .filter((s) => s.name.toLowerCase().includes(q) || s.url.toLowerCase().includes(q))
+        .map((s) => ({ station: s, group: 'all' as Group }));
+    }
+
+    const byUrl = new Map(allStations.map((s) => [s.url, s]));
+    const favSet = new Set(favorites);
+
+    const favRows: Row[] = favorites
+      .map((url) => byUrl.get(url))
+      .filter((s): s is Station => !!s)
+      .map((s) => ({ station: s, group: 'fav' as Group }));
+
+    const recentRows: Row[] = recents
+      .filter((url) => !favSet.has(url))
+      .map((url) => byUrl.get(url))
+      .filter((s): s is Station => !!s)
+      .map((s) => ({ station: s, group: 'recent' as Group }));
+
+    if (favRows.length + recentRows.length === 0) {
+      // Eerste keer: laat alles zien zodat de gebruiker iets kan kiezen
+      return allStations.map((s) => ({ station: s, group: 'all' as Group }));
+    }
+    return [...favRows, ...recentRows];
+  })();
+
+  return (
+    <IonPage>
+      <IonHeader>
+        <IonToolbar>
+          <IonTitle>Sonos Radio</IonTitle>
+          <IonButtons slot="end">
+            <IonButton onClick={handleScan} disabled={scanning}>
+              <IonIcon icon={refresh} slot="icon-only" />
+            </IonButton>
+          </IonButtons>
+        </IonToolbar>
+      </IonHeader>
+
+      <IonContent className="ion-padding">
+        {/* Speaker selectie */}
+        <section style={{ marginBottom: 24 }}>
+          <h2 style={{ marginTop: 0 }}>Speaker</h2>
+
+          {speakers.length > 0 && (
+            <IonItem>
+              <IonLabel>Actieve speaker</IonLabel>
+              <IonSelect
+                value={selectedIp}
+                onIonChange={(e) => setSelectedIp(e.detail.value)}
+                interface="action-sheet"
+              >
+                {speakers.map((s) => (
+                  <IonSelectOption key={s.ip} value={s.ip}>
+                    {s.room} ({s.ip})
+                  </IonSelectOption>
+                ))}
+              </IonSelect>
+            </IonItem>
+          )}
+
+          {scanning && (
+            <IonItem>
+              <IonSpinner slot="start" />
+              <IonLabel>
+                Zoeken… {scanProgress}%
+              </IonLabel>
+            </IonItem>
+          )}
+
+          {speakers.length === 0 && !scanning && (
+            <IonNote>
+              Druk op het ververs-icoon om je netwerk te scannen, of voeg het IP handmatig toe.
+            </IonNote>
+          )}
+
+          {speakers.length > 0 && !showAddSpeaker && (
+            <IonButton
+              fill="clear"
+              size="small"
+              onClick={() => setShowAddSpeaker(true)}
+              style={{ marginTop: 4 }}
+            >
+              + Speaker toevoegen of opnieuw scannen
+            </IonButton>
+          )}
+
+          {(speakers.length === 0 || showAddSpeaker) && (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'flex-end' }}>
+                <IonItem style={{ flex: 1 }}>
+                  <IonLabel position="stacked">Subnet (optioneel)</IonLabel>
+                  <IonInput
+                    placeholder="bijv. 192.168.1"
+                    value={customSubnet}
+                    onIonInput={(e) => setCustomSubnet(e.detail.value ?? '')}
+                  />
+                </IonItem>
+                <IonButton onClick={handleScan} disabled={scanning}>
+                  Scan
+                </IonButton>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'flex-end' }}>
+                <IonItem style={{ flex: 1 }}>
+                  <IonLabel position="stacked">IP handmatig</IonLabel>
+                  <IonInput
+                    placeholder="bijv. 192.168.1.50"
+                    value={manualIp}
+                    onIonInput={(e) => setManualIp(e.detail.value ?? '')}
+                  />
+                </IonItem>
+                <IonButton onClick={handleAddManual} disabled={busy}>
+                  Toevoegen
+                </IonButton>
+              </div>
+
+              {speakers.length > 0 && (
+                <IonButton
+                  fill="clear"
+                  size="small"
+                  color="medium"
+                  onClick={() => setShowAddSpeaker(false)}
+                  style={{ marginTop: 4 }}
+                >
+                  Verbergen
+                </IonButton>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* Volume + nu speelt */}
+        {selectedIp && (
+          <section style={{ marginBottom: 24 }}>
+            {nowPlaying && nowPlaying.state !== 'STOPPED' && (
+              <div
+                style={{
+                  background: 'var(--ion-color-light)',
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 12
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <IonChip color={nowPlaying.state === 'PLAYING' ? 'success' : 'medium'} style={{ margin: 0 }}>
+                    <IonLabel>{nowPlaying.state === 'PLAYING' ? 'Speelt' : nowPlaying.state}</IonLabel>
+                  </IonChip>
+                  {nowPlaying.stationName && (
+                    <span style={{ fontWeight: 600 }}>{nowPlaying.stationName}</span>
+                  )}
+                </div>
+                {nowPlaying.streamContent ? (
+                  <div style={{ fontSize: 14 }}>{nowPlaying.streamContent}</div>
+                ) : nowPlaying.title ? (
+                  <div style={{ fontSize: 14 }}>
+                    {nowPlaying.artist ? `${nowPlaying.artist} — ` : ''}
+                    {nowPlaying.title}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <IonItem>
+              <IonLabel>Volume</IonLabel>
+              <IonNote slot="end">{volume}</IonNote>
+            </IonItem>
+            <IonRange
+              min={0}
+              max={100}
+              value={volume}
+              onIonChange={(e) => handleVolume(e.detail.value as number)}
+            />
+            <IonButton expand="block" color="medium" onClick={handleStop} disabled={busy || !selectedIp}>
+              <IonIcon icon={stop} slot="start" />
+              Stop
+            </IonButton>
+          </section>
+        )}
+
+        {/* Stations */}
+        <section style={{ marginBottom: 24 }}>
+          <h2>Zenders</h2>
+
+          <IonSearchbar
+            value={search}
+            onIonInput={(e) => setSearch(e.detail.value ?? '')}
+            placeholder="Zoek zender..."
+            debounce={150}
+          />
+
+          <IonList>
+            {groupedStations.length === 0 && (
+              <IonItem>
+                <IonLabel>
+                  <IonNote>Geen zender gevonden voor "{search}".</IonNote>
+                </IonLabel>
+              </IonItem>
+            )}
+            {groupedStations.map((row, i) => {
+              const prev = groupedStations[i - 1];
+              const showHeader = !search && (!prev || prev.group !== row.group);
+              const headerLabel =
+                row.group === 'fav' ? 'Favorieten' : row.group === 'recent' ? 'Onlangs gespeeld' : 'Alle zenders';
+              const s = row.station;
+              return (
+                <Fragment key={s.url}>
+                  {showHeader && (
+                    <IonListHeader style={{ minHeight: 32, fontSize: 12, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <IonLabel>{headerLabel}</IonLabel>
+                    </IonListHeader>
+                  )}
+                  <IonItem button onClick={() => handlePlay(s)} disabled={busy || !selectedIp}>
+                    <IonIcon icon={play} slot="start" color="primary" />
+                    <IonLabel>
+                      <h3>{s.name}</h3>
+                      <p style={{ fontSize: 11, opacity: 0.6 }}>{s.url}</p>
+                    </IonLabel>
+                    <IonButton
+                      slot="end"
+                      fill="clear"
+                      color={isFavorite(s.url) ? 'warning' : 'medium'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(s.url);
+                      }}
+                      aria-label={isFavorite(s.url) ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
+                    >
+                      <IonIcon icon={isFavorite(s.url) ? star : starOutline} slot="icon-only" />
+                    </IonButton>
+                    {customStations.some((c) => c.url === s.url) && (
+                      <IonButton
+                        slot="end"
+                        fill="clear"
+                        color="danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveCustom(s.url);
+                        }}
+                      >
+                        Verwijder
+                      </IonButton>
+                    )}
+                  </IonItem>
+                </Fragment>
+              );
+            })}
+          </IonList>
+
+          {!showAddStation ? (
+            <IonButton
+              fill="clear"
+              size="small"
+              onClick={() => setShowAddStation(true)}
+              style={{ marginTop: 4 }}
+            >
+              + Eigen zender toevoegen
+            </IonButton>
+          ) : (
+            <div style={{ marginTop: 8 }}>
+              <IonItem>
+                <IonLabel position="stacked">Naam</IonLabel>
+                <IonInput
+                  placeholder="Mijn radio"
+                  value={newStationName}
+                  onIonInput={(e) => setNewStationName(e.detail.value ?? '')}
+                />
+              </IonItem>
+              <IonItem>
+                <IonLabel position="stacked">Stream URL</IonLabel>
+                <IonInput
+                  placeholder="https://..."
+                  value={newStationUrl}
+                  onIonInput={(e) => setNewStationUrl(e.detail.value ?? '')}
+                />
+              </IonItem>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <IonButton
+                  onClick={() => {
+                    handleAddCustom();
+                    setShowAddStation(false);
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  <IonIcon icon={addCircleOutline} slot="start" />
+                  Toevoegen
+                </IonButton>
+                <IonButton fill="clear" color="medium" onClick={() => setShowAddStation(false)}>
+                  Annuleer
+                </IonButton>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Alarms */}
+        {selectedIp && (
+          <section style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <IonIcon icon={alarmIcon} />
+              <h2 style={{ margin: 0 }}>Alarms</h2>
+              <IonButton size="small" fill="clear" onClick={refreshAlarms}>
+                <IonIcon icon={refresh} slot="icon-only" />
+              </IonButton>
+            </div>
+
+            {!selectedSpeaker?.uuid && (
+              <IonNote>Speaker UUID onbekend — scan opnieuw om alarms te kunnen instellen.</IonNote>
+            )}
+
+            <IonList>
+              {alarms.length === 0 && (
+                <IonItem>
+                  <IonLabel>
+                    <IonNote>Nog geen alarms — voeg er één toe hieronder.</IonNote>
+                  </IonLabel>
+                </IonItem>
+              )}
+              {alarms.map((a) => {
+                const stopLabel = a.duration && a.duration !== '00:00:00'
+                  ? durationToStop(a.startTime.slice(0, 5), a.duration.slice(0, 5))
+                  : 'door';
+                const stationFromUri = a.programMetaData.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1] ?? a.programURI;
+                return (
+                  <IonItem key={a.id}>
+                    <IonLabel>
+                      <h3>
+                        {a.startTime.slice(0, 5)} → {stopLabel}
+                        {!a.enabled && <span style={{ opacity: 0.5 }}> (uit)</span>}
+                      </h3>
+                      <p>
+                        {recurrenceLabel(a.recurrence)} · vol {a.volume} · {stationFromUri}
+                      </p>
+                    </IonLabel>
+                    <IonButton
+                      slot="end"
+                      fill="clear"
+                      color={a.enabled ? 'success' : 'medium'}
+                      onClick={() => handleToggleAlarm(a)}
+                    >
+                      {a.enabled ? 'aan' : 'uit'}
+                    </IonButton>
+                    <IonButton slot="end" fill="clear" color="danger" onClick={() => handleDeleteAlarm(a.id)}>
+                      <IonIcon icon={trash} slot="icon-only" />
+                    </IonButton>
+                  </IonItem>
+                );
+              })}
+            </IonList>
+
+            {!showAlarmForm ? (
+              <IonButton
+                fill="clear"
+                size="small"
+                onClick={() => {
+                  setAlarmStationUrl(favorites[0] ?? allStations[0]?.url ?? '');
+                  setShowAlarmForm(true);
+                }}
+                disabled={!selectedSpeaker?.uuid}
+                style={{ marginTop: 4 }}
+              >
+                + Alarm toevoegen
+              </IonButton>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                <IonItem>
+                  <IonLabel>Zender</IonLabel>
+                  <IonSelect
+                    value={alarmStationUrl}
+                    onIonChange={(e) => setAlarmStationUrl(e.detail.value)}
+                    interface="action-sheet"
+                  >
+                    {allStations.map((s) => (
+                      <IonSelectOption key={s.url} value={s.url}>
+                        {s.name}
+                      </IonSelectOption>
+                    ))}
+                  </IonSelect>
+                </IonItem>
+                <IonItem>
+                  <IonLabel>Start</IonLabel>
+                  <input
+                    type="time"
+                    value={alarmStart}
+                    onChange={(e) => setAlarmStart(e.target.value)}
+                    style={{ marginLeft: 'auto', padding: 6, fontSize: 16 }}
+                  />
+                </IonItem>
+                <IonItem>
+                  <IonLabel>Stop</IonLabel>
+                  <input
+                    type="time"
+                    value={alarmStop}
+                    onChange={(e) => setAlarmStop(e.target.value)}
+                    style={{ marginLeft: 'auto', padding: 6, fontSize: 16 }}
+                  />
+                </IonItem>
+                <IonItem>
+                  <IonLabel>Herhaling</IonLabel>
+                  <IonSelect
+                    value={alarmRecurrence}
+                    onIonChange={(e) => setAlarmRecurrence(e.detail.value)}
+                    interface="action-sheet"
+                  >
+                    <IonSelectOption value="DAILY">Dagelijks</IonSelectOption>
+                    <IonSelectOption value="WEEKDAYS">Werkdagen (ma-vr)</IonSelectOption>
+                    <IonSelectOption value="WEEKENDS">Weekend (za-zo)</IonSelectOption>
+                    <IonSelectOption value="ONCE">Eenmalig</IonSelectOption>
+                  </IonSelect>
+                </IonItem>
+                <IonItem>
+                  <IonLabel>Volume</IonLabel>
+                  <IonNote slot="end">{alarmVolume}</IonNote>
+                </IonItem>
+                <IonRange
+                  min={0}
+                  max={100}
+                  value={alarmVolume}
+                  onIonChange={(e) => setAlarmVolume(e.detail.value as number)}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <IonButton onClick={handleCreateAlarm} disabled={busy} style={{ flex: 1 }}>
+                    Opslaan
+                  </IonButton>
+                  <IonButton fill="clear" color="medium" onClick={() => setShowAlarmForm(false)}>
+                    Annuleer
+                  </IonButton>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        <IonToast
+          isOpen={!!toast}
+          message={toast}
+          duration={2500}
+          onDidDismiss={() => setToast('')}
+        />
+      </IonContent>
+    </IonPage>
+  );
+}
+
+function recurrenceLabel(r: string): string {
+  switch (r) {
+    case 'DAILY':
+      return 'Dagelijks';
+    case 'WEEKDAYS':
+      return 'Werkdagen';
+    case 'WEEKENDS':
+      return 'Weekend';
+    case 'ONCE':
+      return 'Eenmalig';
+    default:
+      return r;
+  }
+}
+
+function mergeSpeakers(prev: Speaker[], next: Speaker[]): Speaker[] {
+  const map = new Map(prev.map((s) => [s.ip, s]));
+  for (const s of next) map.set(s.ip, s);
+  return Array.from(map.values()).sort((a, b) => a.room.localeCompare(b.room));
+}
