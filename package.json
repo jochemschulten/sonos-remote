@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "start": "node server.mjs",
     "cap:sync": "npm run build && cap sync"
   },
   "dependencies": {

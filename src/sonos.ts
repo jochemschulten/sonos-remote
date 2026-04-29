@@ -11,12 +11,14 @@ const RC_PATH = '/MediaRenderer/RenderingControl/Control';
 const AV_NS = 'urn:schemas-upnp-org:service:AVTransport:1';
 const RC_NS = 'urn:schemas-upnp-org:service:RenderingControl:1';
 
-// In Vite dev (browser) zit er CORS tussen ons en Sonos. Vite middleware proxiet alle
-// /sonos-proxy/{ip}/... naar http://{ip}:1400/... Op native (Capacitor WebView) is er
-// geen CORS en gaan we direct.
-const isDev = typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
+// Capacitor WebView heeft geen CORS, dus daar gaan we direct naar de Sonos.
+// Browser (Vite dev én productie via Node-server) heeft wel CORS — die routeren we
+// via /sonos-proxy/{ip}/... waar de host-server het verzoek server-side doorzet.
+const isCapacitorNative =
+  typeof window !== 'undefined' &&
+  !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
 const baseUrl = (ip: string, path: string): string =>
-  isDev ? `/sonos-proxy/${ip}${path}` : `http://${ip}:1400${path}`;
+  isCapacitorNative ? `http://${ip}:1400${path}` : `/sonos-proxy/${ip}${path}`;
 
 const xmlEscape = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -338,7 +340,7 @@ export async function discover(
 ): Promise<Speaker[]> {
   // In dev: laat de Vite Node-server zelf scannen — veel sneller en kent automatisch
   // de echte subnets van de host (geen guessing).
-  if (isDev) {
+  if (!isCapacitorNative) {
     const t0 = performance.now();
     console.log(`[sonos] → discover (server-side, subnet=${customSubnet ?? 'auto'})`);
     onProgress?.(0, 1);
