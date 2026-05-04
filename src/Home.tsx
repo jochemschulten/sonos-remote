@@ -353,12 +353,18 @@ export default function Home() {
         stationName: station.name,
         volume: alarmVolume
       };
+      console.log(`[alarm] ${editingAlarmId ? 'update' : 'create'} input:`, {
+        ...input,
+        volume: input.volume,
+        startTime: input.startTime,
+        duration: input.duration
+      });
       if (editingAlarmId) {
         await updateAlarm(selectedIp, editingAlarmId, input);
-        setToast(`Alarm bijgewerkt: ${alarmStart} → ${alarmStop}`);
+        setToast(`Alarm bijgewerkt: ${alarmStart} → ${alarmStop} · vol ${input.volume}`);
       } else {
         await createAlarm(selectedIp, input);
-        setToast(`Alarm aangemaakt: ${alarmStart} → ${alarmStop}`);
+        setToast(`Alarm aangemaakt: ${alarmStart} → ${alarmStop} · vol ${input.volume}`);
       }
       await refreshAlarms();
       setShowAlarmForm(false);
@@ -824,9 +830,11 @@ export default function Home() {
                   <IonNote slot="end">{alarmVolume}</IonNote>
                 </IonItem>
                 <IonRange
+                  key={editingAlarmId ?? 'new'}
                   min={0}
                   max={100}
                   value={alarmVolume}
+                  onIonInput={(e) => setAlarmVolume(e.detail.value as number)}
                   onIonChange={(e) => setAlarmVolume(e.detail.value as number)}
                 />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
