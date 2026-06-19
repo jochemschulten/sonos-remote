@@ -278,6 +278,21 @@ ion-header ion-toolbar:first-of-type {
   --border-radius: 14px;
   height: 50px;
   font-weight: 600;
+  --color: #f3f4f8;
+}
+/* Stop = duidelijk zichtbare, tikbare knop (geen uitgegrijsd outline) */
+.sr-btn-stop {
+  --background: #2a2d44;
+  --background-activated: #363a55;
+  --background-focused: #363a55;
+  --color: #f3f4f8;
+  --box-shadow: none;
+}
+/* Outline-knoppen (Zenders) leesbaar op donker i.p.v. grijs-op-grijs */
+.sr-transport ion-button[fill='outline'] {
+  --border-color: rgba(255, 255, 255, 0.18);
+  --color: #d2d5ee;
+  --background: rgba(255, 255, 255, 0.03);
 }
 
 /* Stations als rijen op kaart */

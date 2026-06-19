@@ -643,7 +643,7 @@ export default function Home() {
 
             <div className="sr-transport">
               {nowPlaying?.state === 'PLAYING' ? (
-                <IonButton expand="block" color="medium" fill="outline" onClick={handleStop} disabled={busy}>
+                <IonButton expand="block" fill="solid" className="sr-btn-stop" onClick={handleStop} disabled={busy}>
                   <IonIcon icon={stop} slot="start" />
                   Stop
                 </IonButton>
