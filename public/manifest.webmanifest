@@ -1,6 +1,6 @@
 {
-  "name": "Sonos Radio",
-  "short_name": "Sonos Radio",
+  "name": "SonoRadio",
+  "short_name": "SonoRadio",
   "description": "Stream radio naar je Sonos-speakers",
   "start_url": "/",
   "scope": "/",

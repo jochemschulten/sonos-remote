@@ -34,15 +34,25 @@ async function soap(ip: string, path: string, ns: string, action: string, bodyIn
   const url = baseUrl(ip, path);
   const t0 = performance.now();
   console.log(`[sonos] → ${action} @ ${ip}`);
+  // Harde timeout: CapacitorHttp (native) negeert AbortController, dus racen we
+  // tegen een timer. Zonder dit kan een hangende call de UI permanent op "busy" zetten.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Sonos ${action} time-out (8s)`)), 8000);
+  });
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml; charset="utf-8"',
-        SOAPACTION: `"${ns}#${action}"`
-      },
-      body: envelope
-    });
+    const res = await Promise.race([
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml; charset="utf-8"',
+          SOAPACTION: `"${ns}#${action}"`
+        },
+        body: envelope
+      }),
+      timeout
+    ]);
+    clearTimeout(timer);
 
     const text = await res.text();
     const ms = Math.round(performance.now() - t0);
@@ -53,6 +63,7 @@ async function soap(ip: string, path: string, ns: string, action: string, bodyIn
     console.log(`[sonos] ← ${action} @ ${ip} (${ms}ms)`);
     return text;
   } catch (e) {
+    clearTimeout(timer);
     const ms = Math.round(performance.now() - t0);
     console.error(`[sonos] ✗ ${action} @ ${ip} (${ms}ms)`, e);
     throw e;
@@ -160,11 +171,13 @@ export async function getNowPlaying(ip: string): Promise<NowPlaying> {
   const mediaMetaEnc = mediaXml.match(/<CurrentURIMetaData>([\s\S]*?)<\/CurrentURIMetaData>/)?.[1] ?? '';
   const mediaMeta = decodeXmlEntities(mediaMetaEnc);
 
-  const title = trackMeta.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1];
-  const artist = trackMeta.match(/<dc:creator>([^<]+)<\/dc:creator>/)?.[1];
-  const album = trackMeta.match(/<upnp:album>([^<]+)<\/upnp:album>/)?.[1];
-  const streamContent = trackMeta.match(/<r:streamContent>([^<]+)<\/r:streamContent>/)?.[1];
-  const stationName = mediaMeta.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1];
+  // Titels zijn vaak dubbel-geëncodeerd ("Soul &amp;amp; Jazz") — nog een decode-pass.
+  const dec = (s?: string) => (s ? decodeXmlEntities(s) : s);
+  const title = dec(trackMeta.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1]);
+  const artist = dec(trackMeta.match(/<dc:creator>([^<]+)<\/dc:creator>/)?.[1]);
+  const album = dec(trackMeta.match(/<upnp:album>([^<]+)<\/upnp:album>/)?.[1]);
+  const streamContent = dec(trackMeta.match(/<r:streamContent>([^<]+)<\/r:streamContent>/)?.[1]);
+  const stationName = dec(mediaMeta.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1]);
 
   return { state, title, artist, album, streamContent, stationName, uri };
 }
@@ -308,12 +321,18 @@ export function durationToStop(start: string, duration: string): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-async function probe(ip: string, timeoutMs = 800): Promise<Speaker | null> {
+async function probe(ip: string, timeoutMs = 1200): Promise<Speaker | null> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Harde fallback-timeout: CapacitorHttp (native) negeert de AbortSignal, dus
+  // racen we tegen een eigen timer zodat een dode IP de scan nooit ophoudt.
+  const bail = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs + 150));
   try {
-    const res = await fetch(baseUrl(ip, '/xml/device_description.xml'), { signal: ctrl.signal });
-    if (!res.ok) return null;
+    const res = await Promise.race([
+      fetch(baseUrl(ip, '/xml/device_description.xml'), { signal: ctrl.signal }),
+      bail
+    ]);
+    if (!res || !res.ok) return null;
     const xml = await res.text();
     if (!/Sonos/i.test(xml)) return null;
     const room = xml.match(/<roomName>([^<]+)<\/roomName>/)?.[1] ?? 'Onbekend';
@@ -324,8 +343,44 @@ async function probe(ip: string, timeoutMs = 800): Promise<Speaker | null> {
   } catch {
     return null;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
+}
+
+// Probeer het eigen /24-subnet van het toestel te achterhalen via WebRTC, zodat we
+// dat als eerste (en meestal enige) scannen i.p.v. een lijst gokken. Valt stil terug
+// op null als de browser het IP maskeert (mDNS .local) — dan gebruiken we de gok-lijst.
+function getLocalSubnet(timeoutMs = 1500): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    try {
+      const RTC = (window as unknown as { RTCPeerConnection?: typeof RTCPeerConnection }).RTCPeerConnection;
+      if (!RTC) return done(null);
+      const pc = new RTC({ iceServers: [] });
+      pc.createDataChannel('x');
+      pc.onicecandidate = (e) => {
+        const cand = e.candidate?.candidate;
+        if (!cand) return;
+        const m = cand.match(/(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}/);
+        if (!m) return;
+        const sub = m[1];
+        // Alleen privé-ranges (RFC1918)
+        if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(sub + '.')) {
+          pc.close();
+          done(sub);
+        }
+      };
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => done(null));
+      setTimeout(() => done(null), timeoutMs);
+    } catch {
+      done(null);
+    }
+  });
 }
 
 export async function checkSpeaker(ip: string): Promise<Speaker | null> {
@@ -336,7 +391,8 @@ const SUBNETS = ['192.168.1', '192.168.0', '192.168.2', '10.0.0', '10.0.1'];
 
 export async function discover(
   onProgress?: (done: number, total: number) => void,
-  customSubnet?: string
+  customSubnet?: string,
+  onFound?: (speaker: Speaker) => void
 ): Promise<Speaker[]> {
   // In dev: laat de Vite Node-server zelf scannen — veel sneller en kent automatisch
   // de echte subnets van de host (geen guessing).
@@ -354,8 +410,17 @@ export async function discover(
     return data.found;
   }
 
-  // Native: client-side scan via directe HTTP (geen CORS in WebView)
-  const subnets = customSubnet ? [customSubnet] : SUBNETS;
+  // Native: client-side scan via native HTTP (CapacitorHttp omzeilt CORS).
+  // Scan het eigen subnet eerst — dan staat de speaker er meestal binnen seconden.
+  let subnets: string[];
+  if (customSubnet) {
+    subnets = [customSubnet];
+  } else {
+    const localSub = await getLocalSubnet();
+    subnets = localSub ? [localSub, ...SUBNETS.filter((s) => s !== localSub)] : SUBNETS;
+    console.log(`[sonos] eigen subnet: ${localSub ?? '(onbekend, gok-lijst)'}`);
+  }
+
   const ips: string[] = [];
   for (const sub of subnets) {
     for (let i = 1; i < 255; i++) ips.push(`${sub}.${i}`);
@@ -363,14 +428,17 @@ export async function discover(
 
   const found: Speaker[] = [];
   let done = 0;
-  const concurrency = 32;
+  const concurrency = 40;
   let cursor = 0;
 
   async function worker() {
     while (cursor < ips.length) {
       const idx = cursor++;
-      const speaker = await probe(ips[idx], 800);
-      if (speaker) found.push(speaker);
+      const speaker = await probe(ips[idx]);
+      if (speaker && !found.some((f) => f.ip === speaker.ip)) {
+        found.push(speaker);
+        onFound?.(speaker); // direct tonen, niet wachten op de hele scan
+      }
       done++;
       onProgress?.(done, ips.length);
     }

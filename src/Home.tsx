@@ -3,7 +3,6 @@ import {
   IonContent,
   IonHeader,
   IonPage,
-  IonTitle,
   IonToolbar,
   IonList,
   IonItem,
@@ -18,11 +17,12 @@ import {
   IonSpinner,
   IonToast,
   IonButtons,
-  IonChip,
   IonSearchbar,
   IonPopover,
   IonRadioGroup,
-  IonRadio
+  IonRadio,
+  IonTabBar,
+  IonTabButton
 } from '@ionic/react';
 import {
   play,
@@ -33,8 +33,10 @@ import {
   starOutline,
   alarm as alarmIcon,
   trash,
-  chevronDown,
-  create as editIcon
+  create as editIcon,
+  radio as radioIcon,
+  playCircle,
+  volumeHigh
 } from 'ionicons/icons';
 import { Preferences } from '@capacitor/preferences';
 
@@ -89,6 +91,8 @@ export default function Home() {
   const [showAddStation, setShowAddStation] = useState(false);
   const [browseAll, setBrowseAll] = useState(false);
   const [speakerPopoverOpen, setSpeakerPopoverOpen] = useState(false);
+  const [tab, setTab] = useState<'now' | 'browse' | 'alarms'>('now');
+  const [lastStation, setLastStation] = useState<Station | null>(null);
 
   // Alarms
   const [alarms, setAlarms] = useState<Alarm[]>([]);
@@ -196,7 +200,12 @@ export default function Home() {
     try {
       const found = await discover(
         (done, total) => setScanProgress(Math.round((done / total) * 100)),
-        customSubnet || undefined
+        customSubnet || undefined,
+        (sp) => {
+          // Toon de speaker meteen + selecteer de eerste, zonder op de hele scan te wachten
+          setSpeakers((prev) => mergeSpeakers(prev, [sp]));
+          setSelectedIp((cur) => cur || sp.ip);
+        }
       );
       if (found.length === 0) {
         setToast('Geen Sonos gevonden. Probeer handmatig IP toevoegen.');
@@ -237,6 +246,7 @@ export default function Home() {
       setToast('Selecteer eerst een speaker.');
       return;
     }
+    setLastStation(station);
     setBusy(true);
     try {
       await playRadio(selectedIp, station.url, station.name);
@@ -260,6 +270,17 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleResume() {
+    // Hervat de laatst gespeelde zender (of, als die onbekend is, de zender die de
+    // speaker nog geladen heeft); anders stuur de gebruiker naar de zenderlijst.
+    const target = lastStation ?? allStations.find((s) => s.name === nowPlaying?.stationName);
+    if (!target) {
+      setTab('browse');
+      return;
+    }
+    await handlePlay(target);
   }
 
   async function handleVolume(v: number) {
@@ -424,26 +445,42 @@ export default function Home() {
     <IonPage>
       <IonHeader>
         <IonToolbar>
-          <IonTitle>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <img src="/icon.svg" alt="" style={{ width: 22, height: 22, borderRadius: 5 }} />
-              Sonos Radio
+          <IonButtons slot="start">
+            <span className="sr-brand">
+              <img src="/icon.svg" alt="" />
+              SonoRadio
             </span>
-          </IonTitle>
+          </IonButtons>
           <IonButtons slot="end">
-            <IonButton id="speaker-trigger" fill="clear" onClick={() => setSpeakerPopoverOpen(true)}>
-              {scanning ? (
-                <IonSpinner name="dots" style={{ marginRight: 6 }} />
-              ) : (
-                <IonIcon icon={alarmIcon} slot="start" style={{ marginRight: 6, opacity: 0.6 }} />
-              )}
-              <span style={{ fontSize: 14 }}>
-                {selectedSpeaker ? selectedSpeaker.room : speakers.length === 0 ? 'Geen speaker' : 'Kies speaker'}
-              </span>
-              <IonIcon icon={chevronDown} style={{ marginLeft: 4, fontSize: 14 }} />
+            <IonButton id="speaker-trigger" fill="clear" onClick={() => setSpeakerPopoverOpen(true)} aria-label="Speakers beheren">
+              {scanning ? <IonSpinner name="dots" /> : <IonIcon icon={refresh} slot="icon-only" />}
             </IonButton>
           </IonButtons>
         </IonToolbar>
+
+        {/* Kamer-balk — de actieve Sonos is de context voor alles eronder */}
+        {speakers.length > 0 && (
+          <IonToolbar>
+            <div className="sr-rooms">
+              {speakers.map((s) => {
+                const playingHere = s.ip === selectedIp && !!nowPlaying && nowPlaying.state === 'PLAYING';
+                return (
+                  <button
+                    key={s.ip}
+                    className={`sr-room${s.ip === selectedIp ? ' active' : ''}`}
+                    onClick={() => setSelectedIp(s.ip)}
+                  >
+                    {playingHere && <span className="sr-dot" />}
+                    {s.room}
+                  </button>
+                );
+              })}
+              <button className="sr-room add" onClick={() => setSpeakerPopoverOpen(true)}>
+                {scanning ? `Zoeken ${scanProgress}%` : '+'}
+              </button>
+            </div>
+          </IonToolbar>
+        )}
       </IonHeader>
 
       {/* Speaker-popover (rechtsboven) */}
@@ -544,57 +581,93 @@ export default function Home() {
       </IonPopover>
 
       <IonContent className="ion-padding">
-        {/* Volume + nu speelt */}
-        {selectedIp && (
-          <section style={{ marginBottom: 24 }}>
-            {nowPlaying && nowPlaying.state !== 'STOPPED' && (
-              <div
-                style={{
-                  background: 'var(--ion-color-light)',
-                  borderRadius: 12,
-                  padding: 12,
-                  marginBottom: 12
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <IonChip color={nowPlaying.state === 'PLAYING' ? 'success' : 'medium'} style={{ margin: 0 }}>
-                    <IonLabel>{nowPlaying.state === 'PLAYING' ? 'Speelt' : nowPlaying.state}</IonLabel>
-                  </IonChip>
-                  {nowPlaying.stationName && (
-                    <span style={{ fontWeight: 600 }}>{nowPlaying.stationName}</span>
-                  )}
-                </div>
-                {nowPlaying.streamContent ? (
-                  <div style={{ fontSize: 14 }}>{nowPlaying.streamContent}</div>
-                ) : nowPlaying.title ? (
-                  <div style={{ fontSize: 14 }}>
-                    {nowPlaying.artist ? `${nowPlaying.artist} — ` : ''}
-                    {nowPlaying.title}
-                  </div>
-                ) : null}
-              </div>
-            )}
-            <IonItem>
-              <IonLabel>Volume</IonLabel>
-              <IonNote slot="end">{volume}</IonNote>
-            </IonItem>
-            <IonRange
-              min={0}
-              max={100}
-              value={volume}
-              onIonChange={(e) => handleVolume(e.detail.value as number)}
-            />
-            <IonButton expand="block" color="medium" onClick={handleStop} disabled={busy || !selectedIp}>
-              <IonIcon icon={stop} slot="start" />
-              Stop
+        {/* ---- Tab: Nu — geen speaker ---- */}
+        {tab === 'now' && !selectedIp && (
+          <div className="sr-empty">
+            <IonIcon icon={radioIcon} className="sr-empty-icon" />
+            <p>Nog geen Sonos geselecteerd.</p>
+            <IonButton size="small" onClick={() => setSpeakerPopoverOpen(true)}>
+              <IonIcon icon={refresh} slot="start" />
+              Sonos zoeken
             </IonButton>
-          </section>
+          </div>
         )}
 
-        {/* Stations */}
-        <section style={{ marginBottom: 24 }}>
-          <h2>Zenders</h2>
+        {/* ---- Tab: Nu — now-playing hero + volume + transport ---- */}
+        {tab === 'now' && selectedIp && (
+          <>
+            <div className={`sr-hero${nowPlaying?.state === 'PLAYING' ? ' playing' : ''}`}>
+              <div className="sr-hero-glow" />
+              {nowPlaying && nowPlaying.state !== 'STOPPED' ? (
+                <>
+                  <span className={`sr-eyebrow${nowPlaying.state === 'PLAYING' ? '' : ' idle'}`}>
+                    {nowPlaying.state === 'PLAYING' && (
+                      <span className="sr-eq">
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    )}
+                    {nowPlaying.state === 'PLAYING' ? 'Speelt nu' : 'Gepauzeerd'} · {selectedSpeaker?.room}
+                  </span>
+                  <h1 className="sr-station">{nowPlaying.stationName ?? 'Radio'}</h1>
+                  {(nowPlaying.streamContent || nowPlaying.title) && (
+                    <div className="sr-track">
+                      {nowPlaying.streamContent
+                        ? nowPlaying.streamContent
+                        : `${nowPlaying.artist ? nowPlaying.artist + ' — ' : ''}${nowPlaying.title ?? ''}`}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="sr-eyebrow idle">Stil · {selectedSpeaker?.room}</span>
+                  <div className="sr-hero-idle">Niets aan het afspelen. Kies een zender om te starten.</div>
+                </>
+              )}
+            </div>
 
+            <div className="sr-card sr-vol-card">
+              <div className="sr-vol-top">
+                <span className="sr-h2">Volume</span>
+                <span className="sr-vol-val">{volume}</span>
+              </div>
+              <IonRange
+                min={0}
+                max={100}
+                value={volume}
+                onIonChange={(e) => handleVolume(e.detail.value as number)}
+              />
+            </div>
+
+            <div className="sr-transport">
+              {nowPlaying?.state === 'PLAYING' ? (
+                <IonButton expand="block" color="medium" fill="outline" onClick={handleStop} disabled={busy}>
+                  <IonIcon icon={stop} slot="start" />
+                  Stop
+                </IonButton>
+              ) : (
+                <IonButton
+                  expand="block"
+                  onClick={handleResume}
+                  disabled={busy || (!lastStation && !nowPlaying?.stationName)}
+                >
+                  <IonIcon icon={play} slot="start" />
+                  Afspelen
+                </IonButton>
+              )}
+              <IonButton expand="block" fill="outline" onClick={() => setTab('browse')}>
+                <IonIcon icon={radioIcon} slot="start" />
+                Zenders
+              </IonButton>
+            </div>
+          </>
+        )}
+
+        {/* ---- Tab: Zenders ---- */}
+        {tab === 'browse' && (
+        <section style={{ marginBottom: 24 }}>
           <IonSearchbar
             value={search}
             onIonInput={(e) => setSearch(e.detail.value ?? '')}
@@ -603,65 +676,72 @@ export default function Home() {
           />
 
           {!search && favorites.length > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px 4px' }}>
-              <IonNote style={{ fontSize: 12 }}>
-                {browseAll ? `Alle zenders (${allStations.length})` : `Favorieten (${favorites.length})`}
-              </IonNote>
-              <IonButton fill="clear" size="small" onClick={() => setBrowseAll((b) => !b)}>
-                {browseAll ? 'Alleen favorieten' : 'Bladeren'}
-              </IonButton>
+            <div className="sr-seg">
+              <button className={browseAll ? '' : 'on'} onClick={() => setBrowseAll(false)}>
+                Favorieten ({favorites.length})
+              </button>
+              <button className={browseAll ? 'on' : ''} onClick={() => setBrowseAll(true)}>
+                Alle ({allStations.length})
+              </button>
             </div>
           )}
 
           {!search && favorites.length === 0 && (
-            <IonNote style={{ display: 'block', marginBottom: 8 }}>
-              Klik het sterretje bij een zender om aan favorieten toe te voegen.
+            <IonNote style={{ display: 'block', margin: '4px 4px 14px' }}>
+              Tik het sterretje om een zender aan je favorieten toe te voegen.
             </IonNote>
           )}
 
-          <IonList>
+          <div className="sr-list">
             {visibleStations.length === 0 && (
-              <IonItem>
-                <IonLabel>
-                  <IonNote>Geen zender gevonden voor "{search}".</IonNote>
-                </IonLabel>
-              </IonItem>
+              <div className="sr-empty">
+                <IonIcon icon={radioIcon} className="sr-empty-icon" />
+                <p>Geen zender gevonden{search ? ` voor "${search}"` : ''}.</p>
+              </div>
             )}
-            {visibleStations.map((s) => (
-              <IonItem key={s.url} button onClick={() => handlePlay(s)} disabled={busy || !selectedIp}>
-                <IonIcon icon={play} slot="start" color="primary" />
-                <IonLabel>
-                  <h3>{s.name}</h3>
-                  <p style={{ fontSize: 11, opacity: 0.6 }}>{s.url}</p>
-                </IonLabel>
-                <IonButton
-                  slot="end"
-                  fill="clear"
-                  color={isFavorite(s.url) ? 'warning' : 'medium'}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleFavorite(s.url);
-                  }}
-                  aria-label={isFavorite(s.url) ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
+            {visibleStations.map((s) => {
+              const on = nowPlaying?.state === 'PLAYING' && nowPlaying.stationName === s.name;
+              return (
+                <div
+                  key={s.url}
+                  className={`sr-station-row${on ? ' on' : ''}`}
+                  onClick={() => !busy && selectedIp && handlePlay(s)}
                 >
-                  <IonIcon icon={isFavorite(s.url) ? star : starOutline} slot="icon-only" />
-                </IonButton>
-                {customStations.some((c) => c.url === s.url) && (
-                  <IonButton
-                    slot="end"
-                    fill="clear"
-                    color="danger"
+                  <div className="sr-play">
+                    <IonIcon icon={on ? volumeHigh : play} />
+                  </div>
+                  <div className="sr-meta">
+                    <div className="sr-name">{s.name}</div>
+                    <div className="sr-url">{s.url}</div>
+                  </div>
+                  <button
+                    className="sr-fav"
+                    style={{ color: isFavorite(s.url) ? 'var(--ion-color-primary)' : '#74778b' }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemoveCustom(s.url);
+                      toggleFavorite(s.url);
                     }}
+                    aria-label={isFavorite(s.url) ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
                   >
-                    Verwijder
-                  </IonButton>
-                )}
-              </IonItem>
-            ))}
-          </IonList>
+                    <IonIcon icon={isFavorite(s.url) ? star : starOutline} />
+                  </button>
+                  {customStations.some((c) => c.url === s.url) && (
+                    <button
+                      className="sr-fav"
+                      style={{ color: 'var(--ion-color-danger)' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveCustom(s.url);
+                      }}
+                      aria-label="Eigen zender verwijderen"
+                    >
+                      <IonIcon icon={trash} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           {!showAddStation ? (
             <IonButton
@@ -708,64 +788,67 @@ export default function Home() {
             </div>
           )}
         </section>
+        )}
 
-        {/* Alarms */}
-        {selectedIp && (
+        {/* ---- Tab: Wekker — geen speaker ---- */}
+        {tab === 'alarms' && !selectedIp && (
+          <div className="sr-empty">
+            <IonIcon icon={alarmIcon} className="sr-empty-icon" />
+            <p>Selecteer eerst een Sonos.</p>
+          </div>
+        )}
+
+        {/* ---- Tab: Wekker (alarms op eigen pagina) ---- */}
+        {tab === 'alarms' && selectedIp && (
           <section style={{ marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <IonIcon icon={alarmIcon} />
-              <h2 style={{ margin: 0 }}>Alarms</h2>
+            <div className="sr-card-head">
+              <IonIcon icon={alarmIcon} color="primary" />
+              <h2 className="sr-h2" style={{ flex: 1 }}>Wekkers · {selectedSpeaker?.room}</h2>
               <IonButton size="small" fill="clear" onClick={refreshAlarms}>
                 <IonIcon icon={refresh} slot="icon-only" />
               </IonButton>
             </div>
 
             {!selectedSpeaker?.uuid && (
-              <IonNote>Speaker UUID onbekend — scan opnieuw om alarms te kunnen instellen.</IonNote>
+              <IonNote style={{ display: 'block', marginBottom: 12 }}>
+                Speaker-UUID onbekend — scan opnieuw om wekkers te kunnen instellen.
+              </IonNote>
             )}
 
-            <IonList>
-              {alarms.length === 0 && (
-                <IonItem>
-                  <IonLabel>
-                    <IonNote>Nog geen alarms — voeg er één toe hieronder.</IonNote>
-                  </IonLabel>
-                </IonItem>
-              )}
-              {alarms.map((a) => {
-                const stopLabel = a.duration && a.duration !== '00:00:00'
-                  ? durationToStop(a.startTime.slice(0, 5), a.duration.slice(0, 5))
-                  : 'door';
-                const stationFromUri = a.programMetaData.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1] ?? a.programURI;
-                return (
-                  <IonItem key={a.id}>
-                    <IonLabel>
-                      <h3>
-                        {a.startTime.slice(0, 5)} → {stopLabel}
-                        {!a.enabled && <span style={{ opacity: 0.5 }}> (uit)</span>}
-                      </h3>
-                      <p>
-                        {recurrenceLabel(a.recurrence)} · vol {a.volume} · {stationFromUri}
-                      </p>
-                    </IonLabel>
-                    <IonButton
-                      slot="end"
-                      fill="clear"
-                      color={a.enabled ? 'success' : 'medium'}
-                      onClick={() => handleToggleAlarm(a)}
-                    >
-                      {a.enabled ? 'aan' : 'uit'}
-                    </IonButton>
-                    <IonButton slot="end" fill="clear" onClick={() => openEditAlarmForm(a)}>
-                      <IonIcon icon={editIcon} slot="icon-only" />
-                    </IonButton>
-                    <IonButton slot="end" fill="clear" color="danger" onClick={() => handleDeleteAlarm(a.id)}>
-                      <IonIcon icon={trash} slot="icon-only" />
-                    </IonButton>
-                  </IonItem>
-                );
-              })}
-            </IonList>
+            {alarms.length === 0 && (
+              <div className="sr-empty" style={{ padding: '32px 16px' }}>
+                <IonIcon icon={alarmIcon} className="sr-empty-icon" />
+                <p>Nog geen wekkers. Voeg er één toe hieronder.</p>
+              </div>
+            )}
+            {alarms.map((a) => {
+              const stopLabel = a.duration && a.duration !== '00:00:00'
+                ? durationToStop(a.startTime.slice(0, 5), a.duration.slice(0, 5))
+                : 'door';
+              const stationFromUri = a.programMetaData.match(/<dc:title>([^<]+)<\/dc:title>/)?.[1] ?? a.programURI;
+              return (
+                <div key={a.id} className={`sr-alarm${a.enabled ? '' : ' off'}`}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sr-alarm-time">
+                      {a.startTime.slice(0, 5)}{' '}
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#74778b' }}>→ {stopLabel}</span>
+                    </div>
+                    <div className="sr-alarm-sub">
+                      {recurrenceLabel(a.recurrence)} · vol {a.volume} · {stationFromUri}
+                    </div>
+                  </div>
+                  <IonButton fill="clear" size="small" color={a.enabled ? 'success' : 'medium'} onClick={() => handleToggleAlarm(a)}>
+                    {a.enabled ? 'aan' : 'uit'}
+                  </IonButton>
+                  <IonButton fill="clear" size="small" onClick={() => openEditAlarmForm(a)}>
+                    <IonIcon icon={editIcon} slot="icon-only" />
+                  </IonButton>
+                  <IonButton fill="clear" size="small" color="danger" onClick={() => handleDeleteAlarm(a.id)}>
+                    <IonIcon icon={trash} slot="icon-only" />
+                  </IonButton>
+                </div>
+              );
+            })}
 
             {!showAlarmForm ? (
               <IonButton
@@ -775,69 +858,83 @@ export default function Home() {
                 disabled={!selectedSpeaker?.uuid}
                 style={{ marginTop: 4 }}
               >
-                + Alarm toevoegen
+                + Wekker toevoegen
               </IonButton>
             ) : (
-              <div style={{ marginTop: 8 }}>
-                <h3 style={{ margin: '0 0 8px 0' }}>{editingAlarmId ? 'Alarm bewerken' : 'Nieuw alarm'}</h3>
-                <IonItem>
-                  <IonLabel>Zender</IonLabel>
-                  <IonSelect
-                    value={alarmStationUrl}
-                    onIonChange={(e) => setAlarmStationUrl(e.detail.value)}
-                    interface="action-sheet"
-                  >
-                    {allStations.map((s) => (
-                      <IonSelectOption key={s.url} value={s.url}>
-                        {s.name}
-                      </IonSelectOption>
-                    ))}
-                  </IonSelect>
-                </IonItem>
-                <IonItem>
-                  <IonLabel>Start</IonLabel>
-                  <input
-                    type="time"
-                    value={alarmStart}
-                    onChange={(e) => setAlarmStart(e.target.value)}
-                    style={{ marginLeft: 'auto', padding: 6, fontSize: 16 }}
+              <div className="sr-card sr-form" style={{ marginTop: 12 }}>
+                <h3 className="sr-form-title">{editingAlarmId ? 'Wekker bewerken' : 'Nieuwe wekker'}</h3>
+
+                <div className="sr-field">
+                  <span className="sr-field-label">Zender</span>
+                  <div className="sr-select-box">
+                    <IonSelect
+                      value={alarmStationUrl}
+                      onIonChange={(e) => setAlarmStationUrl(e.detail.value)}
+                      interface="action-sheet"
+                      placeholder="Kies een zender"
+                    >
+                      {allStations.map((s) => (
+                        <IonSelectOption key={s.url} value={s.url}>
+                          {s.name}
+                        </IonSelectOption>
+                      ))}
+                    </IonSelect>
+                  </div>
+                </div>
+
+                <div className="sr-field-row">
+                  <label className="sr-field">
+                    <span className="sr-field-label">Start</span>
+                    <input
+                      type="time"
+                      className="sr-time"
+                      value={alarmStart}
+                      onChange={(e) => setAlarmStart(e.target.value)}
+                    />
+                  </label>
+                  <label className="sr-field">
+                    <span className="sr-field-label">Stop</span>
+                    <input
+                      type="time"
+                      className="sr-time"
+                      value={alarmStop}
+                      onChange={(e) => setAlarmStop(e.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="sr-field">
+                  <span className="sr-field-label">Herhaling</span>
+                  <div className="sr-select-box">
+                    <IonSelect
+                      value={alarmRecurrence}
+                      onIonChange={(e) => setAlarmRecurrence(e.detail.value)}
+                      interface="action-sheet"
+                    >
+                      <IonSelectOption value="DAILY">Dagelijks</IonSelectOption>
+                      <IonSelectOption value="WEEKDAYS">Werkdagen (ma-vr)</IonSelectOption>
+                      <IonSelectOption value="WEEKENDS">Weekend (za-zo)</IonSelectOption>
+                      <IonSelectOption value="ONCE">Eenmalig</IonSelectOption>
+                    </IonSelect>
+                  </div>
+                </div>
+
+                <div className="sr-field">
+                  <div className="sr-vol-top">
+                    <span className="sr-field-label" style={{ marginBottom: 0 }}>Volume</span>
+                    <span className="sr-vol-val">{alarmVolume}</span>
+                  </div>
+                  <IonRange
+                    key={editingAlarmId ?? 'new'}
+                    min={0}
+                    max={100}
+                    value={alarmVolume}
+                    onIonInput={(e) => setAlarmVolume(e.detail.value as number)}
+                    onIonChange={(e) => setAlarmVolume(e.detail.value as number)}
                   />
-                </IonItem>
-                <IonItem>
-                  <IonLabel>Stop</IonLabel>
-                  <input
-                    type="time"
-                    value={alarmStop}
-                    onChange={(e) => setAlarmStop(e.target.value)}
-                    style={{ marginLeft: 'auto', padding: 6, fontSize: 16 }}
-                  />
-                </IonItem>
-                <IonItem>
-                  <IonLabel>Herhaling</IonLabel>
-                  <IonSelect
-                    value={alarmRecurrence}
-                    onIonChange={(e) => setAlarmRecurrence(e.detail.value)}
-                    interface="action-sheet"
-                  >
-                    <IonSelectOption value="DAILY">Dagelijks</IonSelectOption>
-                    <IonSelectOption value="WEEKDAYS">Werkdagen (ma-vr)</IonSelectOption>
-                    <IonSelectOption value="WEEKENDS">Weekend (za-zo)</IonSelectOption>
-                    <IonSelectOption value="ONCE">Eenmalig</IonSelectOption>
-                  </IonSelect>
-                </IonItem>
-                <IonItem>
-                  <IonLabel>Volume</IonLabel>
-                  <IonNote slot="end">{alarmVolume}</IonNote>
-                </IonItem>
-                <IonRange
-                  key={editingAlarmId ?? 'new'}
-                  min={0}
-                  max={100}
-                  value={alarmVolume}
-                  onIonInput={(e) => setAlarmVolume(e.detail.value as number)}
-                  onIonChange={(e) => setAlarmVolume(e.detail.value as number)}
-                />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <IonButton onClick={handleSaveAlarm} disabled={busy} style={{ flex: 1 }}>
                     {editingAlarmId ? 'Bijwerken' : 'Opslaan'}
                   </IonButton>
@@ -864,6 +961,21 @@ export default function Home() {
           onDidDismiss={() => setToast('')}
         />
       </IonContent>
+
+      <IonTabBar slot="bottom">
+        <IonTabButton tab="now" selected={tab === 'now'} onClick={() => setTab('now')}>
+          <IonIcon icon={playCircle} />
+          <IonLabel>Nu</IonLabel>
+        </IonTabButton>
+        <IonTabButton tab="browse" selected={tab === 'browse'} onClick={() => setTab('browse')}>
+          <IonIcon icon={radioIcon} />
+          <IonLabel>Zenders</IonLabel>
+        </IonTabButton>
+        <IonTabButton tab="alarms" selected={tab === 'alarms'} onClick={() => setTab('alarms')}>
+          <IonIcon icon={alarmIcon} />
+          <IonLabel>Wekker</IonLabel>
+        </IonTabButton>
+      </IonTabBar>
     </IonPage>
   );
 }

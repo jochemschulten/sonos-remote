@@ -1,0 +1,465 @@
+/* =========================================================================
+   Sonos Radio — "Night radio" thema
+   Warme donkere canvas + amber dial-gloed. Overschrijft de Ionic-variabelen
+   en voegt een paar signature-componenten toe (gloeiende now-playing, eq-puls,
+   kamer-chips). Bewust geen grijs default-Ionic.
+   ========================================================================= */
+
+:root {
+  /* Canvas */
+  --ion-background-color: #0e0f1a;
+  --ion-background-color-rgb: 14, 15, 26;
+  --ion-text-color: #f3f4f8;
+  --ion-text-color-rgb: 243, 244, 248;
+  --ion-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', system-ui, sans-serif;
+
+  /* Accent — amber radio-dial gloed */
+  --ion-color-primary: #ffb454;
+  --ion-color-primary-rgb: 255, 180, 84;
+  --ion-color-primary-contrast: #2a1b00;
+  --ion-color-primary-contrast-rgb: 42, 27, 0;
+  --ion-color-primary-shade: #e09e4a;
+  --ion-color-primary-tint: #ffbf65;
+
+  /* "Speelt" groen + danger */
+  --ion-color-success: #4ade80;
+  --ion-color-success-rgb: 74, 222, 128;
+  --ion-color-success-contrast: #04130a;
+  --ion-color-danger: #ff5c7a;
+  --ion-color-danger-rgb: 255, 92, 122;
+  --ion-color-medium: #8a8da3;
+  --ion-color-medium-rgb: 138, 141, 163;
+
+  /* Surfaces */
+  --ion-toolbar-background: #0e0f1a;
+  --ion-toolbar-color: #f3f4f8;
+  --ion-item-background: transparent;
+  --ion-tab-bar-background: rgba(16, 17, 28, 0.94);
+  --ion-tab-bar-color: #74778b;
+  --ion-tab-bar-color-selected: #ffb454;
+
+  /* Donkere kleurtrap (gebruikt door IonNote, borders, placeholders) */
+  --ion-color-step-50: #191a25;
+  --ion-color-step-100: #232431;
+  --ion-color-step-150: #2d2e3c;
+  --ion-color-step-200: #373948;
+  --ion-color-step-250: #414353;
+  --ion-color-step-300: #4b4d5e;
+  --ion-color-step-350: #565869;
+  --ion-color-step-400: #606275;
+  --ion-color-step-450: #6a6c80;
+  --ion-color-step-500: #74778b;
+  --ion-color-step-550: #7f8196;
+  --ion-color-step-600: #898ca1;
+  --ion-color-step-650: #9396ac;
+  --ion-color-step-700: #9ea1b7;
+  --ion-color-step-750: #a8abc2;
+  --ion-color-step-800: #b3b6cd;
+  --ion-color-step-850: #bdc0d8;
+  --ion-color-step-900: #c7cbe3;
+  --ion-color-step-950: #d2d5ee;
+
+  --sr-card: #181a2a;
+  --sr-card-line: rgba(255, 255, 255, 0.07);
+}
+
+/* Ambient verloop achter de hele app */
+ion-content {
+  --background:
+    radial-gradient(1200px 520px at 50% -8%, rgba(255, 180, 84, 0.14), transparent 60%),
+    radial-gradient(900px 600px at 100% 110%, rgba(122, 92, 255, 0.1), transparent 60%),
+    #0e0f1a;
+}
+
+ion-header ion-toolbar:first-of-type {
+  --border-width: 0 !important;
+}
+
+/* ---- Merknaam ---- */
+.sr-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.sr-brand img {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+/* ---- Kamer-balk (multi-Sonos) ---- */
+.sr-rooms {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 12px 10px;
+  scrollbar-width: none;
+}
+.sr-rooms::-webkit-scrollbar { display: none; }
+
+.sr-room {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  color: #c7cbe3;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+.sr-room.active {
+  background: linear-gradient(135deg, rgba(255, 180, 84, 0.22), rgba(255, 180, 84, 0.08));
+  border-color: rgba(255, 180, 84, 0.55);
+  color: #ffd9a3;
+}
+.sr-room .sr-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 8px #4ade80;
+  animation: sr-pulse 1.6s ease-in-out infinite;
+}
+.sr-room.add {
+  color: var(--ion-color-primary);
+  border-style: dashed;
+  font-weight: 700;
+}
+
+@keyframes sr-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+/* ---- Now-playing hero ---- */
+.sr-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: 22px 20px;
+  background: linear-gradient(160deg, #20233a 0%, #151728 100%);
+  border: 1px solid var(--sr-card-line);
+  margin-bottom: 18px;
+}
+.sr-hero.playing {
+  box-shadow: 0 18px 50px -20px rgba(255, 180, 84, 0.55);
+  border-color: rgba(255, 180, 84, 0.3);
+}
+.sr-hero-glow {
+  position: absolute;
+  top: -60px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 180, 84, 0.35), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+  opacity: 0.5;
+  transition: opacity 0.4s ease;
+}
+.sr-hero.playing .sr-hero-glow { opacity: 1; }
+
+.sr-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ion-color-primary);
+  margin-bottom: 12px;
+}
+.sr-eyebrow.idle { color: #74778b; }
+
+.sr-station {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 6px;
+}
+.sr-track {
+  font-size: 14px;
+  color: #b3b6cd;
+  line-height: 1.4;
+}
+.sr-hero-idle {
+  font-size: 15px;
+  color: #8a8da3;
+}
+
+/* Equalizer-puls */
+.sr-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 13px;
+}
+.sr-eq span {
+  width: 3px;
+  background: var(--ion-color-primary);
+  border-radius: 2px;
+  animation: sr-eq 0.9s ease-in-out infinite;
+}
+.sr-eq span:nth-child(1) { height: 40%; animation-delay: 0s; }
+.sr-eq span:nth-child(2) { height: 90%; animation-delay: 0.18s; }
+.sr-eq span:nth-child(3) { height: 60%; animation-delay: 0.36s; }
+.sr-eq span:nth-child(4) { height: 100%; animation-delay: 0.12s; }
+@keyframes sr-eq {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+/* ---- Generieke kaart / paneel ---- */
+.sr-card {
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.sr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.sr-h2 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a8da3;
+  margin: 0;
+}
+
+/* Volume */
+.sr-vol-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+.sr-vol-val {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ion-color-primary);
+}
+.sr-vol-card ion-range {
+  --bar-background: rgba(255, 255, 255, 0.12);
+  --bar-background-active: var(--ion-color-primary);
+  --knob-background: var(--ion-color-primary);
+  --knob-size: 26px;
+  --bar-height: 6px;
+  padding: 6px 0 0;
+}
+
+/* Transport-knoppen */
+.sr-transport {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.sr-transport ion-button {
+  flex: 1;
+  --border-radius: 14px;
+  height: 50px;
+  font-weight: 600;
+}
+
+/* Stations als rijen op kaart */
+.sr-list { display: flex; flex-direction: column; gap: 8px; }
+.sr-station-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.08s ease;
+}
+.sr-station-row:active { transform: scale(0.985); }
+.sr-station-row.on { border-color: rgba(255, 180, 84, 0.55); }
+.sr-station-row .sr-play {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 180, 84, 0.14);
+  color: var(--ion-color-primary);
+  font-size: 18px;
+}
+.sr-station-row .sr-meta { flex: 1; min-width: 0; }
+.sr-station-row .sr-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-station-row .sr-url {
+  font-size: 11px;
+  color: #74778b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-fav {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  font-size: 20px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+/* Segment voor favorieten/bladeren */
+.sr-seg {
+  display: inline-flex;
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  border-radius: 12px;
+  padding: 3px;
+  margin: 4px 0 12px;
+}
+.sr-seg button {
+  border: none;
+  background: none;
+  color: #9aa0b4;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sr-seg button.on {
+  background: rgba(255, 180, 84, 0.16);
+  color: var(--ion-color-primary);
+}
+
+/* Alarms */
+.sr-alarm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  border-radius: 16px;
+  margin-bottom: 10px;
+}
+.sr-alarm.off { opacity: 0.55; }
+.sr-alarm-time {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.sr-alarm-sub {
+  font-size: 12px;
+  color: #8a8da3;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+}
+
+/* ---- Wekker-formulier ---- */
+.sr-form-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+}
+.sr-field { display: block; margin-bottom: 15px; }
+.sr-field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a8da3;
+  margin-bottom: 7px;
+}
+.sr-field-row { display: flex; gap: 12px; }
+.sr-field-row .sr-field { flex: 1; margin-bottom: 15px; }
+
+/* Donker tijd-veld — color-scheme dark maakt de native picker + tekst leesbaar */
+.sr-time {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0e0f1a;
+  border: 1px solid var(--sr-card-line);
+  border-radius: 12px;
+  color: #f3f4f8;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  padding: 12px 14px;
+  color-scheme: dark;
+}
+.sr-time::-webkit-calendar-picker-indicator {
+  filter: invert(78%) sepia(46%) saturate(900%) hue-rotate(330deg);
+  cursor: pointer;
+}
+
+/* Select als donker veld */
+.sr-select-box {
+  background: #0e0f1a;
+  border: 1px solid var(--sr-card-line);
+  border-radius: 12px;
+}
+.sr-select-box ion-select {
+  width: 100%;
+  --padding-start: 14px;
+  --padding-end: 12px;
+  --padding-top: 13px;
+  --padding-bottom: 13px;
+  font-size: 15px;
+}
+
+/* Lege staten */
+.sr-empty {
+  text-align: center;
+  padding: 56px 24px;
+  color: #8a8da3;
+}
+.sr-empty .sr-empty-icon {
+  font-size: 40px;
+  color: #3a3c52;
+  margin-bottom: 10px;
+}
+
+/* Tab-balk */
+ion-tab-bar {
+  --border: 1px solid var(--sr-card-line);
+  height: 62px;
+  padding-bottom: 4px;
+  backdrop-filter: blur(12px);
+}
+ion-tab-button { --padding-top: 8px; font-weight: 600; }
+
+ion-popover { --background: #181a2a; --width: 300px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sr-room .sr-dot, .sr-eq span { animation: none !important; }
+}
