@@ -1,0 +1,27 @@
+Most radio apps want your email first, then your habits, and only then will they let you listen. SonoRadio flips that around: open the app, pick a station, and it plays on your Sonos. Done.
+
+No account. No cloud. No ads between the songs.
+
+SonoRadio talks directly to the Sonos speakers on your own network. Nothing travels to a server of ours, because there isn't one. What you listen to stays between you and your speaker.
+
+WHAT YOU GET
+
+- 144 radio stations, neatly grouped by country: the Netherlands, Belgium, the UK, Germany and an international selection.
+- A country picker that stays tidy, even as more countries are added later. Your favourites and what you just played sit right at the top.
+- Search that runs across every station at once, with the flag shown so you never confuse Dutch Qmusic with the Belgian one.
+- An alarm that wakes your Sonos with the station you choose, at the time you set.
+- Missing a station? Paste a stream URL and it's there.
+
+WHO IT'S FOR
+
+For anyone with one or more Sonos speakers who simply wants to listen to radio, without a music-service account, without a voice assistant, without a profile being built about you.
+
+HOW IT WORKS
+
+SonoRadio finds your Sonos speakers on your wifi by itself. Pick the room, pick the station, set the volume. Got several speakers? Switch between them at the top.
+
+PRIVACY
+
+SonoRadio collects nothing, sends nothing, and has no account. All settings stay on your device. The app works within your own network.
+
+SonoRadio is an independent app and is not affiliated with or endorsed by Sonos, Inc.

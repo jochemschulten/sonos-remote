@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sonos Radio — "Night radio" thema
+   SonoRadio - "Night radio" thema
    Warme donkere canvas + amber dial-gloed. Overschrijft de Ionic-variabelen
    en voegt een paar signature-componenten toe (gloeiende now-playing, eq-puls,
    kamer-chips). Bewust geen grijs default-Ionic.
@@ -367,6 +367,54 @@ ion-header ion-toolbar:first-of-type {
 .sr-seg button.on {
   background: rgba(255, 180, 84, 0.16);
   color: var(--ion-color-primary);
+}
+
+/* Landen-picker */
+.sr-country-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  background: var(--sr-card);
+  border: 1px solid var(--sr-card-line);
+  border-radius: 14px;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.16s ease, transform 0.08s ease;
+}
+.sr-country-row:active { transform: scale(0.985); }
+.sr-country-flag { font-size: 24px; line-height: 1; flex: 0 0 auto; width: 28px; text-align: center; }
+.sr-country-name { flex: 1; font-size: 16px; font-weight: 600; }
+.sr-country-count {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #74778b;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+/* Terug-balk boven een stationlijst */
+.sr-back-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--ion-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 4px 12px;
+  cursor: pointer;
+}
+.sr-back-row .sr-back-title {
+  margin-left: auto;
+  color: #9aa0b4;
+  font-weight: 600;
 }
 
 /* Alarms */

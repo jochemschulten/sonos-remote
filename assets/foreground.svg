@@ -12,9 +12,9 @@
       <path d="M224 272 q32 -28 64 0" opacity="0.4"/>
     </g>
     <rect x="112" y="300" width="288" height="118" rx="26" fill="url(#amber)"/>
-    <circle cx="178" cy="359" r="29" fill="#0c0c14"/>
+    <circle cx="178" cy="359" r="29" fill="#15110c"/>
     <circle cx="178" cy="359" r="11" fill="#ffb454"/>
-    <rect x="234" y="336" width="148" height="15" rx="7" fill="#0c0c14" opacity="0.7"/>
-    <rect x="234" y="366" width="106" height="11" rx="5" fill="#0c0c14" opacity="0.45"/>
+    <rect x="234" y="336" width="148" height="15" rx="7" fill="#15110c" opacity="0.7"/>
+    <rect x="234" y="366" width="106" height="11" rx="5" fill="#15110c" opacity="0.45"/>
   </g>
 </svg>

@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "SonoRadio",
+    "slug": "sonos-radio",
+    "owner": "schultenmedia",
+    "ios": { "bundleIdentifier": "nl.schultenmedia.sonosradio" },
+    "extra": { "eas": { "projectId": "72e10e5a-063f-4075-8090-4c52566a0fff" } }
+  }
+}

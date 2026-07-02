@@ -1,0 +1,8 @@
+First release of SonoRadio.
+
+- 144 radio stations, grouped by country
+- Country picker with favourites and recently played
+- Global search across every station
+- Alarm clock through your Sonos
+- Add your own station
+- No account, no cloud, no ads

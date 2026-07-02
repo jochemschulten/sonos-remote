@@ -1,0 +1,8 @@
+Eerste versie van SonoRadio.
+
+- 144 radiozenders, geordend per land
+- Landen-kiezer met favorieten en recent gespeeld
+- Globaal zoeken door alle zenders
+- Wekker via je Sonos
+- Eigen zender toevoegen
+- Geen account, geen cloud, geen reclame

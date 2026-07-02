@@ -36,11 +36,12 @@ import {
   create as editIcon,
   radio as radioIcon,
   playCircle,
-  volumeHigh
+  volumeHigh,
+  chevronBack
 } from 'ionicons/icons';
 import { Preferences } from '@capacitor/preferences';
 
-import { STATIONS, Station } from './stations';
+import { STATIONS, Station, COUNTRIES, countryOf, CountryCode } from './stations';
 import {
   Speaker,
   NowPlaying,
@@ -66,6 +67,13 @@ const PREF_SPEAKERS = 'speakers';
 const PREF_SELECTED = 'selectedIp';
 const PREF_CUSTOM = 'customStations';
 const PREF_FAVORITES = 'favoriteUrls';
+const PREF_VIEW = 'browseView';
+const PREF_RECENT = 'recentUrls';
+const RECENT_MAX = 5;
+
+// Welke "map" toont de Zenders-tab. 'picker' = landenlijst, anders een
+// landcode of de virtuele groepen 'fav' / 'recent'.
+type BrowseView = 'picker' | 'fav' | 'recent' | CountryCode;
 
 type CustomStation = Station;
 
@@ -89,7 +97,8 @@ export default function Home() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [showAddStation, setShowAddStation] = useState(false);
-  const [browseAll, setBrowseAll] = useState(false);
+  const [view, setView] = useState<BrowseView>('picker');
+  const [recent, setRecent] = useState<string[]>([]);
   const [speakerPopoverOpen, setSpeakerPopoverOpen] = useState(false);
   const [tab, setTab] = useState<'now' | 'browse' | 'alarms'>('now');
   const [lastStation, setLastStation] = useState<Station | null>(null);
@@ -115,6 +124,10 @@ export default function Home() {
       if (cs.value) setCustomStations(JSON.parse(cs.value));
       const fav = await Preferences.get({ key: PREF_FAVORITES });
       if (fav.value) setFavorites(JSON.parse(fav.value));
+      const rc = await Preferences.get({ key: PREF_RECENT });
+      if (rc.value) setRecent(JSON.parse(rc.value));
+      const vw = await Preferences.get({ key: PREF_VIEW });
+      if (vw.value) setView(vw.value as BrowseView);
       setHydrated(true);
     })();
   }, []);
@@ -128,22 +141,31 @@ export default function Home() {
     }
   }, [hydrated, speakers.length]);
 
-  // Persist speakers
+  // Persist speakers — pas na hydratie, anders overschrijft de initiële lege
+  // state de opgeslagen lijst vóór de load-effect 'm gelezen heeft.
   useEffect(() => {
-    Preferences.set({ key: PREF_SPEAKERS, value: JSON.stringify(speakers) });
-  }, [speakers]);
+    if (hydrated) Preferences.set({ key: PREF_SPEAKERS, value: JSON.stringify(speakers) });
+  }, [speakers, hydrated]);
 
   useEffect(() => {
     if (selectedIp) Preferences.set({ key: PREF_SELECTED, value: selectedIp });
   }, [selectedIp]);
 
   useEffect(() => {
-    Preferences.set({ key: PREF_CUSTOM, value: JSON.stringify(customStations) });
-  }, [customStations]);
+    if (hydrated) Preferences.set({ key: PREF_CUSTOM, value: JSON.stringify(customStations) });
+  }, [customStations, hydrated]);
 
   useEffect(() => {
     if (hydrated) Preferences.set({ key: PREF_FAVORITES, value: JSON.stringify(favorites) });
   }, [favorites, hydrated]);
+
+  useEffect(() => {
+    if (hydrated) Preferences.set({ key: PREF_RECENT, value: JSON.stringify(recent) });
+  }, [recent, hydrated]);
+
+  useEffect(() => {
+    if (hydrated) Preferences.set({ key: PREF_VIEW, value: view });
+  }, [view, hydrated]);
 
   // Sync volume when speaker changes
   useEffect(() => {
@@ -247,6 +269,7 @@ export default function Home() {
       return;
     }
     setLastStation(station);
+    setRecent((prev) => [station.url, ...prev.filter((u) => u !== station.url)].slice(0, RECENT_MAX));
     setBusy(true);
     try {
       await playRadio(selectedIp, station.url, station.name);
@@ -295,7 +318,7 @@ export default function Home() {
 
   function handleAddCustom() {
     if (!newStationName.trim() || !newStationUrl.trim()) return;
-    setCustomStations((prev) => [...prev, { name: newStationName.trim(), url: newStationUrl.trim() }]);
+    setCustomStations((prev) => [...prev, { name: newStationName.trim(), url: newStationUrl.trim(), country: 'INT' }]);
     setNewStationName('');
     setNewStationUrl('');
   }
@@ -423,23 +446,86 @@ export default function Home() {
 
   const allStations = [...STATIONS, ...customStations];
   const isFavorite = (url: string) => favorites.includes(url);
+  const byUrl = new Map(allStations.map((s) => [s.url, s]));
+  const searching = search.trim().length > 0;
 
+  const countByCountry = (code: CountryCode) =>
+    allStations.filter((s) => s.country === code).length;
+
+  // Zenders voor de huidige stationlijst (bij zoeken: globaal; anders per view).
   const visibleStations: Station[] = (() => {
     const q = search.trim().toLowerCase();
     if (q) {
-      // Bij zoeken altijd alle treffers tonen
       return allStations.filter(
         (s) => s.name.toLowerCase().includes(q) || s.url.toLowerCase().includes(q)
       );
     }
-    // Bladeren — toon alles
-    if (browseAll || favorites.length === 0) {
-      return allStations;
+    if (view === 'fav') {
+      return favorites.map((u) => byUrl.get(u)).filter((s): s is Station => !!s);
     }
-    // Default: alleen favorieten in volgorde van toevoegen
-    const byUrl = new Map(allStations.map((s) => [s.url, s]));
-    return favorites.map((url) => byUrl.get(url)).filter((s): s is Station => !!s);
+    if (view === 'recent') {
+      return recent.map((u) => byUrl.get(u)).filter((s): s is Station => !!s);
+    }
+    if (view === 'picker') return [];
+    return allStations.filter((s) => s.country === view);
   })();
+
+  // Titel van de huidige (niet-picker) view, voor de terug-balk.
+  const viewTitle =
+    view === 'fav'
+      ? 'Favorieten'
+      : view === 'recent'
+        ? 'Recent'
+        : view === 'picker'
+          ? ''
+          : `${countryOf(view).flag} ${countryOf(view).name}`;
+
+  // Eén stationrij — herbruikt in picker-views én zoekresultaten.
+  const renderStationRow = (s: Station, showFlag = false) => {
+    const on = nowPlaying?.state === 'PLAYING' && nowPlaying.stationName === s.name;
+    return (
+      <div
+        key={s.url}
+        className={`sr-station-row${on ? ' on' : ''}`}
+        onClick={() => !busy && selectedIp && handlePlay(s)}
+      >
+        <div className="sr-play">
+          <IonIcon icon={on ? volumeHigh : play} />
+        </div>
+        <div className="sr-meta">
+          <div className="sr-name">{s.name}</div>
+          <div className="sr-url">
+            {showFlag && <span style={{ marginRight: 6 }}>{countryOf(s.country).flag}</span>}
+            {s.url}
+          </div>
+        </div>
+        <button
+          className="sr-fav"
+          style={{ color: isFavorite(s.url) ? 'var(--ion-color-primary)' : '#74778b' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFavorite(s.url);
+          }}
+          aria-label={isFavorite(s.url) ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
+        >
+          <IonIcon icon={isFavorite(s.url) ? star : starOutline} />
+        </button>
+        {customStations.some((c) => c.url === s.url) && (
+          <button
+            className="sr-fav"
+            style={{ color: 'var(--ion-color-danger)' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRemoveCustom(s.url);
+            }}
+            aria-label="Eigen zender verwijderen"
+          >
+            <IonIcon icon={trash} />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <IonPage>
@@ -675,73 +761,74 @@ export default function Home() {
             debounce={150}
           />
 
-          {!search && favorites.length > 0 && (
-            <div className="sr-seg">
-              <button className={browseAll ? '' : 'on'} onClick={() => setBrowseAll(false)}>
-                Favorieten ({favorites.length})
-              </button>
-              <button className={browseAll ? 'on' : ''} onClick={() => setBrowseAll(true)}>
-                Alle ({allStations.length})
-              </button>
+          {/* Zoeken — globaal over alle landen, plat met land-vlag per rij */}
+          {searching && (
+            <div className="sr-list">
+              {visibleStations.length === 0 && (
+                <div className="sr-empty">
+                  <IonIcon icon={radioIcon} className="sr-empty-icon" />
+                  <p>Geen zender gevonden voor "{search}".</p>
+                </div>
+              )}
+              {visibleStations.map((s) => renderStationRow(s, true))}
             </div>
           )}
 
-          {!search && favorites.length === 0 && (
-            <IonNote style={{ display: 'block', margin: '4px 4px 14px' }}>
-              Tik het sterretje om een zender aan je favorieten toe te voegen.
-            </IonNote>
+          {/* Picker — landen + virtuele groepen */}
+          {!searching && view === 'picker' && (
+            <div className="sr-list">
+              {favorites.length > 0 && (
+                <button className="sr-country-row" onClick={() => setView('fav')}>
+                  <span className="sr-country-flag">★</span>
+                  <span className="sr-country-name">Favorieten</span>
+                  <span className="sr-country-count">{favorites.length}</span>
+                </button>
+              )}
+              {recent.length > 0 && (
+                <button className="sr-country-row" onClick={() => setView('recent')}>
+                  <span className="sr-country-flag">↻</span>
+                  <span className="sr-country-name">Recent</span>
+                  <span className="sr-country-count">{recent.length}</span>
+                </button>
+              )}
+              {COUNTRIES.slice()
+                .sort((a, b) => a.order - b.order)
+                .filter((c) => countByCountry(c.code) > 0)
+                .map((c) => (
+                  <button key={c.code} className="sr-country-row" onClick={() => setView(c.code)}>
+                    <span className="sr-country-flag">{c.flag}</span>
+                    <span className="sr-country-name">{c.name}</span>
+                    <span className="sr-country-count">{countByCountry(c.code)}</span>
+                  </button>
+                ))}
+            </div>
           )}
 
-          <div className="sr-list">
-            {visibleStations.length === 0 && (
-              <div className="sr-empty">
-                <IonIcon icon={radioIcon} className="sr-empty-icon" />
-                <p>Geen zender gevonden{search ? ` voor "${search}"` : ''}.</p>
+          {/* Stationlijst binnen een view (land / favorieten / recent) */}
+          {!searching && view !== 'picker' && (
+            <>
+              <button className="sr-back-row" onClick={() => setView('picker')}>
+                <IonIcon icon={chevronBack} />
+                <span>Alle landen</span>
+                <span className="sr-back-title">{viewTitle}</span>
+              </button>
+              <div className="sr-list">
+                {visibleStations.length === 0 && (
+                  <div className="sr-empty">
+                    <IonIcon icon={radioIcon} className="sr-empty-icon" />
+                    <p>
+                      {view === 'fav'
+                        ? 'Nog geen favorieten — tik het sterretje bij een zender.'
+                        : view === 'recent'
+                          ? 'Nog niets afgespeeld.'
+                          : 'Geen zenders.'}
+                    </p>
+                  </div>
+                )}
+                {visibleStations.map((s) => renderStationRow(s))}
               </div>
-            )}
-            {visibleStations.map((s) => {
-              const on = nowPlaying?.state === 'PLAYING' && nowPlaying.stationName === s.name;
-              return (
-                <div
-                  key={s.url}
-                  className={`sr-station-row${on ? ' on' : ''}`}
-                  onClick={() => !busy && selectedIp && handlePlay(s)}
-                >
-                  <div className="sr-play">
-                    <IonIcon icon={on ? volumeHigh : play} />
-                  </div>
-                  <div className="sr-meta">
-                    <div className="sr-name">{s.name}</div>
-                    <div className="sr-url">{s.url}</div>
-                  </div>
-                  <button
-                    className="sr-fav"
-                    style={{ color: isFavorite(s.url) ? 'var(--ion-color-primary)' : '#74778b' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(s.url);
-                    }}
-                    aria-label={isFavorite(s.url) ? 'Verwijder uit favorieten' : 'Toevoegen aan favorieten'}
-                  >
-                    <IonIcon icon={isFavorite(s.url) ? star : starOutline} />
-                  </button>
-                  {customStations.some((c) => c.url === s.url) && (
-                    <button
-                      className="sr-fav"
-                      style={{ color: 'var(--ion-color-danger)' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveCustom(s.url);
-                      }}
-                      aria-label="Eigen zender verwijderen"
-                    >
-                      <IonIcon icon={trash} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+            </>
+          )}
 
           {!showAddStation ? (
             <IonButton

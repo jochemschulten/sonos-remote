@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-06-22
+
+### Completed
+- Landen-drill-down in Zenders-tab + 39 nieuwe default-zenders. Spec: `docs/superpowers/specs/2026-06-22-country-stations-design.md`.
+  - `stations.ts`: `Station` krijgt `country` (`NL|BE|UK|DE|INT`), `COUNTRIES`-registry + `countryOf()`. Alle bestaande zenders getagd, Scotland → INT.
+  - Nieuwe zenders (elke URL geverifieerd op bereikbaarheid + audio content-type): BE 8 (StuBru/MNM/VRT R1/Klara/Qmusic BE/Joe BE/...), UK 9 (Global-brands Capital/Heart/Classic FM/Smooth/Radio X/Gold/LBC + talkSPORT), DE 10 (1LIVE/WDR2/SWR3/NDR2/Bayern3/Antenne/Rock Antenne/bigFM/sunshine live/Dlf), INT 12 (SomaFM x4/FIP x2/Swiss Jazz+Pop/Radio Paradise x2/KEXP/Scotland). BBC overgeslagen (HLS-only, niet door Sonos af te spelen).
+  - `Home.tsx`: country-first picker (Favorieten + Recent + landen met aantallen) → stationlijst per view, terug-balk `‹ Alle landen`. Laatste view + recent (laatste 5) persistent via Preferences. Search blijft globaal over alle landen met land-vlag per resultaat.
+  - `theme.css`: `.sr-country-row` + `.sr-back-row` toegevoegd.
+  - Gebouwd, gesynced, debug-APK geïnstalleerd + gelaunched op Galaxy S22 (192.168.2.20) — start zonder crash.
+- App Store-voorbereiding (iOS): naam overal → "SonoRadio" (incl. risicovolle iOS `CFBundleDisplayName`, stond op "Sonos Radio"). Signing-team `DEVELOPMENT_TEAM = TBH425X27A` (Schulten Media, company-ADP) gezet in pbxproj. Gesigneerde archive + App Store-IPA headless gebouwd (`xcodebuild archive` + `-exportArchive` met `-allowProvisioningUpdates`): bundle-id `nl.schultenmedia.sonosradio` automatisch geregistreerd als expliciete App ID, distributie-cert + App Store-profiel aangemaakt. IPA: `/tmp/SonoRadio-ipa/App.ipa`.
+  - BLOKKADE: geen App Store Connect-credentials voor het SM-account (alleen Coachio individuele key, ander account). Nodig: ASC **Team API key** voor Schulten Media (issuer-id + key-id + .p8) om app-record aan te maken + te uploaden.
+- App Store listing-materiaal gemaakt (in `store/`):
+  - Metadata NL + EN (`store/metadata/<locale>/`): name, subtitle, keywords, promo, description, release_notes, privacy/support-url. Copy bewust onderscheidend (privacy/anti-cloud-hoek), met "niet verbonden aan Sonos"-disclaimer.
+  - Privacy-policy (tweetalig, branded) live op **https://sonoradio-privacy.pages.dev** (Cloudflare Pages project `sonoradio-privacy`).
+  - 6 marketing-screenshots per locale (1290×2796, iPhone 6.7") in `store/screenshots/<locale>/APP_IPHONE_67/`. Recept: web-build seeden via `CapacitorStorage.*` (nep-speakers Woonkamer/Keuken + favorieten/recent) + SOAP-mock voor afspelend Nu-scherm, Playwright-capture (`scripts/shoot-raw.mjs`), framen met brand-gradient + kop (`scripts/frame.mjs`).
+  - Bijvangst-fix: `speakers`- en `customStations`-persist-effects in Home.tsx kregen een `hydrated`-guard (overschreven anders de opgeslagen lijst met lege initiële state bij mount - echte race-bug).
+- Icoon warm gemaakt (was nog blauw/navy, paste niet bij amber-thema): `public/icon.svg` + `assets/foreground.svg` bg/fills → warm (#241a10/#0e0a06/#15110c), manifest theme/background → #15110c. PNG's geregenereerd via chromium (`scripts/icons.mjs` voor web 192/512/180/32; `scripts/assets-src.mjs` voor capacitor-bron), daarna `npx @capacitor/assets generate --ios --android` → nieuwe iOS AppIcon + Android launcher. Mac PWA herbouwd + service herstart (nieuw icoon geverifieerd geserveerd); Android debug-APK herbouwd + herinstalleerd op S22. LET OP: bestaande `/tmp/SonoRadio-ipa/App.ipa` heeft nog het oude icoon → archive/IPA opnieuw bouwen vóór de definitieve App Store-upload.
+- Mac-versie bijgewerkt: `npm run build` + `launchctl kickstart dev.schulten.sonos-radio`, draait op localhost:4173 met landen-features + warm icoon. (Geïnstalleerde Chrome-PWA vereist herinstallatie om nieuw icoon te tonen.)
+
 ## 2026-06-19
 
 ### Completed

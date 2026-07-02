@@ -204,7 +204,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   const ifaces = os.networkInterfaces();
-  console.log(`\n  Sonos Radio — productie-server\n`);
+  console.log(`\n  SonoRadio - productie-server\n`);
   console.log(`  ➜  Local:    http://localhost:${PORT}/`);
   for (const [, list] of Object.entries(ifaces)) {
     if (!list) continue;

@@ -1,0 +1,27 @@
+De meeste radio-apps willen eerst je e-mailadres, dan je gewoontes, en pas daarna mag je luisteren. SonoRadio draait het om: je opent de app, kiest een zender, en het speelt op je Sonos. Klaar.
+
+Geen account. Geen cloud. Geen reclame tussen de nummers.
+
+SonoRadio praat rechtstreeks met de Sonos-speakers in je eigen netwerk. Er gaat niets naar een server van ons, want die is er niet. Wat jij luistert, blijft tussen jou en je speaker.
+
+WAT JE KRIJGT
+
+- 144 radiozenders, netjes geordend per land: Nederland, België, UK, Duitsland en een internationale selectie.
+- Een landen-kiezer die overzichtelijk blijft, ook als er straks meer landen bijkomen. Bovenaan je favorieten en wat je net nog luisterde.
+- Zoeken dat door álle zenders tegelijk gaat, met de vlag erbij zodat je Qmusic uit Nederland en België niet door elkaar haalt.
+- Een wekker die je Sonos laat aanslaan met de zender die jij kiest, op de tijd die jij instelt.
+- Mis je een zender? Plak een stream-URL en hij staat erbij.
+
+VOOR WIE
+
+Voor iedereen met een of meer Sonos-speakers die gewoon radio wil luisteren, zonder een muziekdienst-account, zonder spraakassistent, zonder dat er een profiel van je wordt opgebouwd.
+
+ZO WERKT HET
+
+SonoRadio vindt je Sonos-speakers zelf op je wifi. Kies de kamer, kies de zender, regel het volume. Heb je meerdere speakers, dan schakel je er bovenin tussen.
+
+PRIVACY
+
+SonoRadio verzamelt niets, stuurt niets door en heeft geen account. Alle instellingen blijven op je toestel. De app werkt binnen je eigen netwerk.
+
+SonoRadio is een onafhankelijke app en niet verbonden aan of goedgekeurd door Sonos, Inc.

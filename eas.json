@@ -1,0 +1,14 @@
+{
+  "cli": { "version": ">=19.0.0", "appVersionSource": "local" },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "TBH425X27A",
+        "bundleIdentifier": "nl.schultenmedia.sonosradio",
+        "language": "nl-NL",
+        "companyName": "Schulten Media",
+        "sku": "nl.schultenmedia.sonosradio"
+      }
+    }
+  }
+}
